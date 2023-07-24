@@ -33,15 +33,17 @@ jobs:
           cargo build --release
           cd scripts
           cp ../target/release/xline-operator .
-          docker build . -t datenlord/xline-operator:latest
+          docker build . -t datenlord/xline-operator:latest -f operator.Dockerfile
           docker pull datenlord/xline:latest
+          docker pull gcr.io/etcd-development/etcd:v3.5.5
           k3d image import datenlord/xline-operator:latest -c test-cluster-1 --verbose
           k3d image import datenlord/xline:latest -c test-cluster-1 --verbose
+          k3d image import gcr.io/etcd-development/etcd:v3.5.5 -c test-cluster-1 --verbose
       - name: 'Prepare Cluster'
         run: |
           kubectl create clusterrolebinding serviceaccount-cluster-admin --clusterrole=cluster-admin --serviceaccount=default:default
           kubectl apply -f examples/crd-deployment.yml
-          sleep 30
+          kubectl wait --for=condition=available deployment/my-xline-operator
           kubectl apply -f examples/xline-cluster-example.yml
           sleep 30
       - name: 'Validate'

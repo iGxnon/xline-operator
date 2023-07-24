@@ -1,17 +1,47 @@
 #!/bin/bash
 
-CONTAINER_NAME='my-xline'
 CLUSTER_NAME='my-xline-cluster'
 DNS_SUFFIX='cluster.local'
 NAMESPACE='default'
 XLINE_PORT='2379'
-ENDPOINTS="http://${CLUSTER_NAME}-0.${CLUSTER_NAME}.${NAMESPACE}.svc.${DNS_SUFFIX}:${XLINE_PORT},http://${CLUSTER_NAME}-1.${CLUSTER_NAME}.${NAMESPACE}.svc.${DNS_SUFFIX}:${XLINE_PORT},http://${CLUSTER_NAME}-2.${CLUSTER_NAME}.${NAMESPACE}.svc.${DNS_SUFFIX}:${XLINE_PORT}"
+ENDPOINTS=""
 
-# install etcdctl in pod `my-xline-cluster-0`
-kubectl exec -it pod/my-xline-cluster-0 -c $CONTAINER_NAME -- bash -c "apt update && apt install -y etcd"
+# start a tester pod to run etcdctl
+kubectl delete pod/tester 2>/dev/null
+kubectl wait --for=delete pod/tester --timeout=60s
+kubectl run tester --image=registry.k8s.io/pause:3.1 --restart=Never
+kubectl debug tester --image=gcr.io/etcd-development/etcd:v3.5.5 --container=etcdctl --target=tester
+# waiting for the debug request to be received by the API server.
+sleep 5
+kubectl wait --for=condition=containersready pod/tester --timeout=60s
 
 etcdctl() {
-  kubectl exec -it pod/my-xline-cluster-0 -c $CONTAINER_NAME -- bash -c "ETCDCTL_API=3 etcdctl --endpoints='${ENDPOINTS}' ${1}"
+  kubectl exec pod/tester -c etcdctl -- bash -c "ETCDCTL_API=3 etcdctl --endpoints='${ENDPOINTS}' ${1}"
+}
+
+mk_endpoints() {
+  ENDPOINTS="http://${CLUSTER_NAME}-0.${CLUSTER_NAME}.${NAMESPACE}.svc.${DNS_SUFFIX}:${XLINE_PORT}"
+  for ((i = 1; i < $1; i++)); do
+    ENDPOINTS="${ENDPOINTS},http://${CLUSTER_NAME}-${i}.${CLUSTER_NAME}.${NAMESPACE}.svc.${DNS_SUFFIX}:${XLINE_PORT}"
+  done
+  echo "ENDPOINTS: $ENDPOINTS"
+}
+
+scale_cluster() {
+  kubectl scale xc $CLUSTER_NAME --replicas="$1"
+  # TODO wait for xlinecluster resource status
+  kubectl wait --for=jsonpath='{.status.updatedReplicas}'="$1" sts/$CLUSTER_NAME --timeout=5m
+  # wait for the last container to be running
+  kubectl wait --for=jsonpath='{.status.readyReplicas}'="$1" sts/$CLUSTER_NAME --timeout=5m
+  # wait for some seconds
+  sleep 3
+  got=$(kubectl get xc $CLUSTER_NAME -o=jsonpath='{.spec.size}')
+  if [ "$got" -ne "$1" ]; then
+    echo "failed scale cluster"
+    echo "expect size: $1"
+    echo "got size: $got"
+    exit 1
+  fi
 }
 
 run_expect() {
@@ -29,8 +59,23 @@ run_expect() {
 }
 
 basic_validation() {
+  echo "=== Basic Validation ==="
+  mk_endpoints 3
+  run_expect "put A 1" "OK"
+  run_expect "get A" "A\n1"
+}
+
+scale_validation() {
+  echo "=== Scale Validation ==="
+  scale_cluster 5
+  mk_endpoints 5
+  run_expect "put A 1" "OK"
+  run_expect "get A" "A\n1"
+  scale_cluster 3
+  mk_endpoints 3
   run_expect "put A 1" "OK"
   run_expect "get A" "A\n1"
 }
 
 basic_validation
+scale_validation
