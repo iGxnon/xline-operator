@@ -11,7 +11,7 @@ on:
         required: true
 
 env:
-  REGISTRY_IMAGE_OPERATOR: datenlord/xline-operator
+  REGISTRY_IMAGE_OPERATOR: igxnon/xline-operator
 
 jobs:
   merge_image:

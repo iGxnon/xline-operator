@@ -7,7 +7,7 @@ on:
 
 env:
   CI_RUST_TOOLCHAIN: 1.70.0
-  REGISTRY_IMAGE_OPERATOR: datenlord/xline-operator
+  REGISTRY_IMAGE_OPERATOR: igxnon/xline-operator
 
 jobs:
   create_release:
