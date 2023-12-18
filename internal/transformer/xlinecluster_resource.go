@@ -2,6 +2,7 @@ package transformer
 
 import (
 	"fmt"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"strings"
 
 	xapi "github.com/xline-kv/xline-operator/api/v1alpha1"
@@ -85,6 +86,17 @@ func MakeStatefulSet(cr *xapi.XlineCluster, scheme *runtime.Scheme) *appv1.State
 		},
 		Env: []corev1.EnvVar{
 			{Name: "MEMBERS", Value: GetMemberTopology(stsRef, svcName, int(cr.Spec.Replicas))},
+		},
+		StartupProbe: &corev1.Probe{
+			InitialDelaySeconds: 5,
+			PeriodSeconds:       5,
+			TimeoutSeconds:      5,
+			FailureThreshold:    12,
+			ProbeHandler: corev1.ProbeHandler{
+				TCPSocket: &corev1.TCPSocketAction{
+					Port: intstr.FromInt32(2379),
+				},
+			},
 		},
 	}
 
